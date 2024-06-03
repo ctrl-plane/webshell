@@ -1,0 +1,19 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./src/*"]
+    },
+    "plugins": [{ "name": "next" }],
+    "module": "NodeNext",
+    "outDir": "dist",
+    "noEmit": false,
+    "esModuleInterop": true,
+    "importsNotUsedAsValues": "remove"
+  },
+  "include": ["src", "*.ts"],
+  "exclude": ["node_modules"]
+}

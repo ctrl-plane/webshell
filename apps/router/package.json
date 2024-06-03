@@ -1,0 +1,38 @@
+{
+  "name": "router",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf .turbo node_modules",
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "lint": "eslint",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@t3-oss/env-core": "^0.10.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "ws": "^8.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.9",
+    "@types/ws": "^8.5.10",
+    "eslint": "^9.2.0",
+    "h3": "^1.11.1",
+    "nitropack": "^2.9.6",
+    "prettier": "^3.2.5",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5"
+  },
+  "prettier": "@acme/prettier-config"
+}

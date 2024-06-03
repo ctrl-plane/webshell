@@ -1,0 +1,22 @@
+{
+  "name": "router",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf .turbo node_modules",
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "lint": "eslint",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "16.7.13",
+    "eslint": "^9.2.0",
+    "prettier": "^3.2.5",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5"
+  }
+}
