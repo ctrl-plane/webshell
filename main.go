@@ -5,17 +5,16 @@ import (
 	"log"
 	"net/url"
 
+	"github.com/ctrl-plane/webshell/pkg/instance"
 	"github.com/ctrl-plane/webshell/pkg/server"
 )
 
-var addr = flag.String("addr", "localhost:3000", "ws service address")
+var addr = flag.String("addr", "localhost:4000", "ws service address")
 
 func main() {
 	flag.Parse()
-	log.SetFlags(0)
-
-	u := url.URL{Scheme: "ws", Host: *addr, Path: "/api/ws"}
-	client, err := New(u)
+	u := url.URL{Scheme: "ws", Host: *addr, Path: "/route"}
+	client, err := instance.New(u)
 	if err != nil {
 		log.Fatal(err)
 	}

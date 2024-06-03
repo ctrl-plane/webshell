@@ -1,4 +1,4 @@
-package main
+package instance
 
 import (
 	"encoding/json"
@@ -6,10 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/user"
-	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/ctrl-plane/webshell/pkg/shell"
 	"github.com/google/uuid"
@@ -22,36 +21,28 @@ func New(u url.URL) (*WebsocketClient, error) {
 		return nil, err
 	}
 
+	identifer := uuid.New().String()
 	headers := http.Header{
-        "X-Hostname": {hostname},
-		"X-Runtime": {runtime.GOOS},
-		"X-Arch": {runtime.GOARCH},
-		"X-Instance-ID": {InstanceID()},
-    }
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), headers)
-	if err != nil {
-		return nil, err
+		"X-Hostname":    {hostname},
+		"X-Runtime":     {runtime.GOOS},
+		"X-Arch":        {runtime.GOARCH},
+		"X-Identifier":  {identifer},
 	}
 	wc := &WebsocketClient{
-		conn:   conn,
-		shells: make(map[string]*shell.Shell),
+		shells:    make(map[string]*shell.Shell),
+		identifer: identifer,
+		url:       u,
+		headers:   headers,
 	}
-
-	conn.SetCloseHandler(func(_ int, __ string) error {
-		wc.Close()
-		return nil
-	})
-
-	log.Printf("Connected to %s, using ID %s\n", u.String(), InstanceID())
-
+	wc.reconnect()
 	return wc, nil
 }
 
 type EventType string
 
 const (
-	MessageTypeShellData   EventType = "shell-data"
-	MessageTypeShellCreate EventType = "shell-create"
+	MessageTypeShellData   EventType = "shell/data"
+	MessageTypeShellCreate EventType = "shell/create"
 )
 
 type Event struct {
@@ -61,24 +52,47 @@ type Event struct {
 type EventWebsocketShellData struct {
 	Type       EventType `json:"type"`
 	InstanceID string    `json:"instanceId"`
-	ShellID    string    `json:"shellId"`
+	ClientID   string    `json:"clientId"`
 	Data       string    `json:"data"`
 }
 
 type EventWebsocketShellCreate struct {
 	Type       EventType `json:"type"`
-	From       string    `json:"from"`
 	InstanceID string    `json:"instanceId"`
+	ClientID   string    `json:"clientId"`
 }
 
 type WebsocketClient struct {
-	conn   *websocket.Conn
-	shells map[string]*shell.Shell
-	mu     sync.Mutex
+	url       url.URL
+	headers   http.Header
+	identifer string
+	conn      *websocket.Conn
+	shells    map[string]*shell.Shell
+	mu        sync.Mutex
 }
 
-func (i *WebsocketClient) NewShell() (string, *shell.Shell, error) {
-	id := uuid.New().String()
+func (i *WebsocketClient) reconnect() {
+	for {
+		conn, _, err := websocket.DefaultDialer.Dial(i.url.String(), i.headers)
+		if err != nil {
+			log.Printf("Failed to connect to %s: %v. Retrying in 1 second...", i.url.String(), err)
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
+		i.conn = conn
+		conn.SetCloseHandler(func(_ int, __ string) error {
+			print("")
+			i.Close()
+			go i.reconnect()
+			return nil
+		})
+
+		log.Printf("Connected to %s, using ID %s\n", i.url.String(), i.identifer)
+		break
+	}
+}
+
+func (i *WebsocketClient) NewShell(clientId string) (string, *shell.Shell, error) {
 
 	sh, err := shell.New()
 	if err != nil {
@@ -91,8 +105,8 @@ func (i *WebsocketClient) NewShell() (string, *shell.Shell, error) {
 		for data := range dataChan {
 			msg := EventWebsocketShellData{
 				Type:       MessageTypeShellData,
-				InstanceID: InstanceID(),
-				ShellID:    id,
+				InstanceID: i.identifer,
+				ClientID:   clientId,
 				Data:       string(data),
 			}
 
@@ -103,34 +117,38 @@ func (i *WebsocketClient) NewShell() (string, *shell.Shell, error) {
 		}
 	}()
 
-	i.addShell(id, sh)
-	return id, sh, nil
+	i.addShell(clientId, sh)
+	return clientId, sh, nil
 }
 
 func (i *WebsocketClient) processShellCreateEvent(event *EventWebsocketShellCreate) {
-	if event.InstanceID != InstanceID() {
-		log.Printf("Instance ID mismatch: %s != %s\n", event.InstanceID, InstanceID())
+	if event.InstanceID != i.identifer {
+		log.Printf("Instance ID mismatch: %s != %s\n", event.InstanceID, i.identifer)
 		return
 	}
 
-	id, _, err := i.NewShell()
+	_, exists := i.GetShell(event.ClientID)
+	if exists {
+		return
+	}
+	_, _, err := i.NewShell(event.ClientID)
 	if err != nil {
 		log.Println("Failed to create shell:", err)
 		return
 	}
 
-	log.Printf("Shell %s created\n", id)
+	log.Printf("New shell created for %s\n", event.ClientID)
 }
 
 func (i *WebsocketClient) processShellDataEvent(event *EventWebsocketShellData) {
-	if event.InstanceID != InstanceID() {
-		log.Printf("Instance ID mismatch: %s != %s\n", event.InstanceID, InstanceID())
+	if event.InstanceID != i.identifer {
+		log.Printf("Instance ID mismatch: %s != %s\n", event.InstanceID, i.identifer)
 		return
 	}
 
-	sh, ok := i.GetShell(event.ShellID)
+	sh, ok := i.GetShell(event.ClientID)
 	if !ok {
-		log.Printf("Shell %s not found\n", event.ShellID)
+		log.Printf("Shell found for client %s\n", event.ClientID)
 		return
 	}
 
@@ -141,10 +159,18 @@ func (i *WebsocketClient) processShellDataEvent(event *EventWebsocketShellData) 
 
 func (i *WebsocketClient) ReadInput() {
 	for {
+		if i.conn == nil {
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+
 		var rawMessage json.RawMessage
 		if err := i.conn.ReadJSON(&rawMessage); err != nil {
-			log.Println("Failed to read from WebSocket:", err)
-			break
+			log.Println("Client failed to read from WebSocket:", err)
+			i.conn.Close()
+			i.conn = nil
+			i.reconnect()
+			continue
 		}
 
 		var event Event
@@ -200,51 +226,4 @@ func (i *WebsocketClient) Close() {
 	}
 	i.conn.Close()
 	i.mu.Unlock()
-}
-
-func InstanceID() string {
-	clientIDFilePath, err := getClientIDFilePath()
-	if err != nil {
-		log.Fatal("Failed to get client ID file path:", err)
-	}
-
-	clientID, err := readClientID(clientIDFilePath)
-	if err != nil {
-		log.Println("Failed to read client ID:", err)
-		clientID = uuid.New().String()
-		if err := writeClientID(clientIDFilePath, clientID); err != nil {
-			log.Fatal("Failed to write client ID:", err)
-		}
-	}
-
-	return clientID
-}
-
-const (
-	ConfigDir  = ".config/instance"
-	ConfigFile = "client_id.txt"
-)
-
-func getClientIDFilePath() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	configPath := filepath.Join(usr.HomeDir, ConfigDir)
-	if err := os.MkdirAll(configPath, 0755); err != nil {
-		return "", err
-	}
-	return filepath.Join(configPath, ConfigFile), nil
-}
-
-func readClientID(filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func writeClientID(filePath, id string) error {
-	return os.WriteFile(filePath, []byte(id), 0644)
 }
