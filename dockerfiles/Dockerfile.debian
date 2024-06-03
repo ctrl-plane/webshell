@@ -1,0 +1,89 @@
+FROM debian:latest
+
+
+ENV HELM_VERSION="v3.2.4"
+
+RUN apt-get update && \
+    apt-get install -y  --no-install-recommends \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg2 \
+        software-properties-common
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    wget \
+    git \
+    net-tools \
+    openssh-client \
+    vim \
+    nano \
+    htop \
+    tcpdump \
+    iputils-ping \
+    dnsutils \
+    iproute2 \
+    traceroute \
+    lsof \
+    telnet \
+    sudo \
+    less \
+    man \
+    unzip \
+    procps \
+    python3 \
+    python3-pip \
+    jq
+
+# Install Terraform
+RUN wget https://releases.hashicorp.com/terraform/1.0.11/terraform_1.0.11_linux_amd64.zip && \
+    unzip terraform_1.0.11_linux_amd64.zip && \
+    mv terraform /usr/local/bin/ && \
+    rm terraform_1.0.11_linux_amd64.zip
+
+# Install AWS CLI
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf awscliv2.zip aws
+
+# Install Google Cloud SDK
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - && \
+    apt-get update && apt-get install -y google-cloud-sdk
+
+# Install Azure CLI
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+# Install Kubectl
+RUN curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
+    echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+
+RUN apt-get update && \
+    apt-get install -y kubectl
+
+    # Install Helm
+RUN curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz -o helm.tar.gz && \
+    tar -zxvf helm.tar.gz && \
+    mv linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf linux-amd64 helm.tar.gz
+
+# Install Oh My Zsh
+RUN wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -O - | zsh || true
+
+# Set up a non-root user for security reasons
+RUN useradd -ms /bin/bash devuser && echo "devuser:password" | chpasswd && adduser devuser sudo
+
+USER devuser
+WORKDIR /home/devuser
+
+# Install Oh My Zsh for the non-root user
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+# Set Zsh as the default shell
+RUN chsh -s $(which zsh)
+
+CMD ["bash"]

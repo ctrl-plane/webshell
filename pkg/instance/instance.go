@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime"
 	"sync"
@@ -15,24 +14,29 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func New(u url.URL) (*WebsocketClient, error) {
+func New(
+	u string, 
+	dialer websocket.Dialer,
+	headers http.Header,
+) (*WebsocketClient, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
 	}
 
 	identifer := uuid.New().String()
-	headers := http.Header{
-		"X-Hostname":    {hostname},
-		"X-Runtime":     {runtime.GOOS},
-		"X-Arch":        {runtime.GOARCH},
-		"X-Identifier":  {identifer},
-	}
+	headers.Add("X-Hostname", hostname)
+	headers.Add("X-Runtime", runtime.GOOS)
+	headers.Add("X-Arch", runtime.GOARCH)
+	headers.Add("X-Identifier", identifer)
+
 	wc := &WebsocketClient{
 		shells:    make(map[string]*shell.Shell),
 		identifer: identifer,
+
 		url:       u,
 		headers:   headers,
+		dialer:   dialer,
 	}
 	wc.reconnect()
 	return wc, nil
@@ -63,8 +67,10 @@ type EventWebsocketShellCreate struct {
 }
 
 type WebsocketClient struct {
-	url       url.URL
-	headers   http.Header
+	url      string
+	headers  http.Header
+	dialer	 websocket.Dialer
+
 	identifer string
 	conn      *websocket.Conn
 	shells    map[string]*shell.Shell
@@ -73,9 +79,10 @@ type WebsocketClient struct {
 
 func (i *WebsocketClient) reconnect() {
 	for {
-		conn, _, err := websocket.DefaultDialer.Dial(i.url.String(), i.headers)
+
+		conn, _, err := websocket.DefaultDialer.Dial(i.url, i.headers)
 		if err != nil {
-			log.Printf("Failed to connect to %s: %v. Retrying in 1 second...", i.url.String(), err)
+			log.Printf("Failed to connect to %s: %v. Retrying in 1 second...", i.url, err)
 			time.Sleep(1 * time.Millisecond)
 			continue
 		}
@@ -87,7 +94,7 @@ func (i *WebsocketClient) reconnect() {
 			return nil
 		})
 
-		log.Printf("Connected to %s, using ID %s\n", i.url.String(), i.identifer)
+		log.Printf("Connected to %s, using ID %s\n", i.url, i.identifer)
 		break
 	}
 }
